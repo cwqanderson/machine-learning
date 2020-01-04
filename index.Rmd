@@ -1,0 +1,102 @@
+---
+title: "Human Activity Recognition"
+author: "cwqa"
+date: "1/3/2020"
+output: html_document
+---
+
+# Summary 
+The purpose of this project is to employ machine learning algorithms to accurately differentiate between correctly and incorrectly executed weightlifting activities using accelerometer data collected from sensors worn by the participants.  Moreover, the model should also accurately classify the incorrectly performed activities into one of four common categories of “execution mistakes.”   Two different models were considered, “decision tree” and “random forest,” and are discussed below.
+
+# Data & Data Processing
+
+The unprocessed data, both training and testing sets, were downloaded from the URLs provided in the assignment page within Coursera.  An initial inspection of the data revealed that several of the variables, found in the first seven columns, were used for participant identification/tracking and would not be useful for activity prediction.  These variables were excluded from the datasets, ‘Ptrain’ and ‘Ptest’, used for generating and testing the prediction models for this report.  
+
+```{r}
+train <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+Ptrain <- train[ , -(1:7)]
+
+test <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+Ptest <- test[ , -(1:7)]
+```
+
+Further inspection of the data revealed that values for several of the variables in the testing set were entirely absent in the data.  Because it would not make sense to build a prediction model based on parameters that cannot be tested, these missing variables were removed from both the test set, ‘Ptest,’ and the training set, ‘Ptrain.’    Subsequently, both the training and testing datasets were left including 53 variables, with 19,622 and 20 observations respectively.
+
+```{r}
+Ptest <- Ptest[ , colSums(is.na(Ptest)) == 0]
+
+Ptest_names <- names(Ptest)
+Ptrain_names <- names(Ptrain)
+intsect_names <- intersect(Ptest_names, Ptrain_names)
+
+Ptrain <- Ptrain[ , c(intsect_names, "classe")]
+```
+
+# Model Specification and Selection
+
+### Model 1 -- Decision Tree
+
+Because decision trees are characterized by fast training/testing times and are easily interpreted and visualized, the approach is well suited for a first attempt at prediction.  The model is specified simply by identifying the classification object, in this case the 'classe' variable identifying either the correct execution of a dumbbell exercise or one of 4 common execution mistakes, and the potential classifying parameters, the associated accelerometer data.  Because overfitting is a commonly recognized limitation of decision trees, cross validation is used.  Due of the large number of observations available in the training set and relatively fast training times associated with this model, a relatively large number of folds, k = 10, are employed here.
+
+```{r}
+library(caret)
+set.seed(17701)
+fitControlDT <- trainControl(method = "cv", number = 10)
+fitDT <- train(classe ~ ., method = "rpart", data=Ptrain, trControl = fitControlDT)
+```
+
+As can be seen in the summary output below, the average accuracy of the cross validated model was slightly greater than 50% (ranging from a low of 48% to a high of 53% among the 10 cross validated folds).  The complexity parameter, 'cp,' was optimized at a value of 0.036.  Dispite implementation of cross validation, out of sample accuracy is expected to be lower than the values produced by the model using the traing data.
+
+```{r}
+fitDT
+fitDT$resample
+confusionMatrix.train(fitDT)
+```
+
+Results from the decision tree model are presented in the dedrogram below.
+```{r}
+library(rattle)
+tree_plot <- fancyRpartPlot(fitDT$finalModel)
+```
+
+### Model 2 -- Random Forest
+
+Random Forests are generally recognized for high accuracy, but also limited because of difficulty with interpretation.  Because the model but is also regarded as computationally demanding, parallel processing is implemented.  In specifying model the classification object is first assigned to a vector, y, and the classifying parameters are assigned to a data frame, x.  Cross validation is employed to minimize overfitting and accuracy bias.  
+
+```{r}
+library(caret)
+set.seed(93291)
+
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+x <- Ptrain[ , -53]
+y <- Ptrain[ , 53]
+
+fitControlRF <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+fitRF <- train(x, y, method="rf", data=Ptrain, trControl = fitControlRF)
+
+stopCluster(cluster)
+registerDoSEQ()
+```
+
+The classification accuracy of the model is very high, averaging 94.4%, and varies little, from 99.1% to 99.6%, accross all five cross validation folds.  The number of variables randomly sampled as candidates at each split in the model, 'mtry,' maximized model accuracy when equal to 2.  Again, though reduced by using cross validation, the risk of overfitting has not been eliminated here and thus out of sample accuracy is likely over predicted by the results obtained below. 
+```{r}
+fitRF
+fitRF$resample
+confusionMatrix.train(fitRF)
+```
+### Addtional Models
+Due to the high estimated classification accuracy (and its low varaiablity) returned by the random forest model specified above, no addtional models are specified for this report.
+
+# Conclusion
+
+Based on the results produced by the two models described above, the random forest model is selected to predict the correctly and incorrectly executed weightlifting exercises performed by the study participants.  Prediction results are presented in the output below.
+```{r}
+predictions <- predict(fitRF, newdata = Ptest)
+predictions
+```
+
+
